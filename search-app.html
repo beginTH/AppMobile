@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบค้นหาข้อมูล Excel</title>
+    <!-- เรียกใช้ Tailwind CSS เพื่อความสวยงาม -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- เรียกใช้ไลบรารี SheetJS สำหรับอ่านไฟล์ Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- เรียกใช้ LocalForage สำหรับบันทึกข้อมูลในเครื่อง (ไม่ต้องอัปโหลดใหม่ทุกรอบ) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <style>
+        body { font-family: 'Prompt', sans-serif; background-color: #f3f4f6; }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #3b82f6;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-gray-800 antialiased p-4 md:p-8">
+
+    <div class="max-w-3xl mx-auto">
+        <!-- Header -->
+        <div class="bg-white rounded-2xl shadow-sm p-6 mb-6">
+            <h1 class="text-2xl font-semibold text-blue-600 mb-2">🔍 หูทิพย์ - ค้นหาข้อมูลจาก Excel</h1>
+            <p class="text-sm text-gray-500 mb-6">แอปจดจำไฟล์ล่าสุดของคุณไว้ในเครื่อง ไม่ต้องเสียเวลาอัปโหลดใหม่ทุกครั้ง!</p>
+
+            <!-- Upload Area -->
+            <div id="uploadArea" class="flex flex-col mb-4 space-y-3">
+                <!-- ไฟล์ FixID -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">📄 ไฟล์ FixID (ไฟล์หลัก)</label>
+                    <div class="relative">
+                        <input type="file" id="fileUpload" accept=".xlsx, .xls, .csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer border border-gray-200 rounded-full focus:outline-none">
+                    </div>
+                    <div id="fixIdStatus" class="hidden mt-1 text-xs text-green-600 font-medium">✅ อัปโหลดแล้ว — <span id="fixIdCount">0</span> รายการ</div>
+                </div>
+                <!-- ไฟล์ Status -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">📊 ไฟล์ Status (RTU Status)</label>
+                    <div class="relative">
+                        <input type="file" id="statusUpload" accept=".xlsx, .xls, .csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer border border-gray-200 rounded-full focus:outline-none">
+                    </div>
+                    <div id="statusFileStatus" class="hidden mt-1 text-xs text-purple-600 font-medium">✅ อัปโหลดแล้ว — <span id="statusCount">0</span> รายการ</div>
+                </div>
+            </div>
+
+            <!-- Saved Data Status Area (แสดงเมื่อมีข้อมูลบันทึกอยู่) -->
+            <div id="savedDataArea" class="hidden p-4 bg-green-50 border border-green-200 rounded-xl mb-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-semibold text-green-800">✅ ระบบจำไฟล์ล่าสุดไว้แล้ว!</p>
+                        <p class="text-xs text-green-700">FixID: <span id="savedRowCount" class="font-bold">0</span> รายการ</p>
+                        <p id="savedStatusInfo" class="text-xs text-purple-700 hidden">Status: <span id="savedStatusCount" class="font-bold">0</span> รายการ</p>
+                    </div>
+                    <button id="btnNewUpload" class="text-xs px-4 py-2 bg-white border border-green-300 text-green-700 font-medium rounded-lg hover:bg-green-100 focus:outline-none shadow-sm transition-colors">
+                        🔄 เปลี่ยนไฟล์ใหม่
+                    </button>
+                </div>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="loadingStatus" class="hidden flex items-center space-x-3 text-blue-600 mb-4 bg-blue-50 p-4 border border-blue-100 rounded-xl">
+                <div class="spinner"></div>
+                <span class="text-sm font-medium">กำลังอ่านและบันทึกไฟล์... (อาจใช้เวลา 5-10 วินาที สำหรับหลักหมื่นแถว)</span>
+            </div>
+
+            <hr class="my-6 border-gray-100">
+
+            <!-- Search Area -->
+            <div class="flex flex-col">
+                <label class="block text-sm font-medium text-gray-700 mb-2">2. ค้นหาข้อมูล</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <input type="text" id="searchInput" disabled placeholder="พิมพ์คำที่ต้องการค้นหา..." class="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                </div>
+                <p class="text-xs text-gray-400 mt-2">พิมพ์อะไรก็ได้ที่อยู่ในข้อมูล ผลลัพธ์จะออกทันที</p>
+            </div>
+        </div>
+
+        <!-- Results Area -->
+        <div id="resultsContainer" class="space-y-4">
+            <!-- Results will be injected here -->
+            <div class="text-center text-gray-400 py-10" id="emptyState">
+                ยังไม่มีข้อมูล กรุณาอัปโหลดไฟล์ด้านบน 👆
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let excelData = []; // เก็บข้อมูล FixID ไว้ในหน่วยความจำ
+        let statusData = []; // เก็บข้อมูล Status ไว้ในหน่วยความจำ
+        let statusMap = {}; // Map สำหรับค้นหา RTU Status แบบเร็ว { name: rtuStatus }
+
+        const fileUpload = document.getElementById('fileUpload');
+        const statusUpload = document.getElementById('statusUpload');
+        const searchInput = document.getElementById('searchInput');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const emptyState = document.getElementById('emptyState');
+        const loadingStatus = document.getElementById('loadingStatus');
+        const uploadArea = document.getElementById('uploadArea');
+        const savedDataArea = document.getElementById('savedDataArea');
+        const btnNewUpload = document.getElementById('btnNewUpload');
+        const savedRowCount = document.getElementById('savedRowCount');
+        const fixIdStatus = document.getElementById('fixIdStatus');
+        const fixIdCount = document.getElementById('fixIdCount');
+        const statusFileStatus = document.getElementById('statusFileStatus');
+        const statusCountEl = document.getElementById('statusCount');
+        const savedStatusInfo = document.getElementById('savedStatusInfo');
+        const savedStatusCount = document.getElementById('savedStatusCount');
+
+        // ฟังก์ชันช่วยหาค่าจากคอลัมน์ (ไม่สนตัวเล็ก/ใหญ่ หรือช่องว่าง)
+        function findValue(obj, searchKey) {
+            searchKey = searchKey.trim().toLowerCase();
+            for (let k in obj) {
+                if (k.trim().toLowerCase() === searchKey) return String(obj[k]).trim();
+            }
+            return "";
+        }
+        function matchKey(key, target) {
+            return key.trim().toLowerCase() === target.trim().toLowerCase();
+        }
+
+        // สร้าง lookup map จากข้อมูล Status: { name → rtuStatus }
+        function buildStatusMap(data) {
+            statusMap = {};
+            for (const row of data) {
+                const name = findValue(row, "Name");
+                const rtuStatus = findValue(row, "RTU Status");
+                if (name) statusMap[name.toLowerCase()] = rtuStatus;
+            }
+        }
+
+        // เช็คว่าพร้อมค้นหาหรือยัง (ต้องมี FixID อย่างน้อย)
+        function checkReadyToSearch() {
+            if (excelData.length > 0) {
+                searchInput.disabled = false;
+            }
+        }
+
+        // เมื่อเปิดแอปขึ้นมา ให้เช็คก่อนว่าเคยมีข้อมูลบันทึกไว้ไหม
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const savedFixData = await localforage.getItem('myExcelApp_savedData');
+                const savedStatusData = await localforage.getItem('myExcelApp_statusData');
+                
+                if (savedFixData && savedFixData.length > 0) {
+                    excelData = savedFixData;
+                    
+                    uploadArea.classList.add('hidden');
+                    savedDataArea.classList.remove('hidden');
+                    savedRowCount.textContent = excelData.length.toLocaleString();
+                    
+                    // โหลดข้อมูล Status ถ้ามี
+                    if (savedStatusData && savedStatusData.length > 0) {
+                        statusData = savedStatusData;
+                        buildStatusMap(statusData);
+                        savedStatusInfo.classList.remove('hidden');
+                        savedStatusCount.textContent = statusData.length.toLocaleString();
+                    }
+                    
+                    searchInput.disabled = false;
+                    searchInput.value = '';
+                    emptyState.style.display = 'block';
+                    emptyState.textContent = 'ข้อมูลเดิมของคุณพร้อมแล้ว! พิมพ์เพื่อค้นหาได้เลย';
+                }
+            } catch (error) {
+                console.error("เกิดข้อผิดพลาดในการโหลดข้อมูลเดิม:", error);
+            }
+        });
+
+        // ปุ่มเคลียร์ข้อมูลเดิมเพื่อเปลี่ยนไฟล์ใหม่
+        btnNewUpload.addEventListener('click', async () => {
+            if(confirm('คุณต้องการนำไฟล์เดิมออกและเปลี่ยนเป็นไฟล์ใหม่ใช่หรือไม่?')) {
+                await localforage.removeItem('myExcelApp_savedData');
+                await localforage.removeItem('myExcelApp_statusData');
+                excelData = [];
+                statusData = [];
+                statusMap = {};
+                
+                uploadArea.classList.remove('hidden');
+                savedDataArea.classList.add('hidden');
+                savedStatusInfo.classList.add('hidden');
+                fixIdStatus.classList.add('hidden');
+                statusFileStatus.classList.add('hidden');
+                
+                searchInput.disabled = true;
+                searchInput.value = '';
+                resultsContainer.innerHTML = '';
+                emptyState.style.display = 'block';
+                emptyState.textContent = 'กรุณาเลือกไฟล์ Excel ใหม่ด้านบน 👆';
+                fileUpload.value = '';
+                statusUpload.value = '';
+            }
+        });
+
+        // ฟังก์ชันกลางสำหรับอ่านไฟล์ Excel
+        function readExcelFile(file, callback) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+                    callback(null, jsonData);
+                } catch (error) {
+                    callback(error, null);
+                }
+            };
+            setTimeout(() => { reader.readAsArrayBuffer(file); }, 50);
+        }
+
+        // อัปโหลดไฟล์ FixID (ไฟล์หลัก)
+        fileUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            loadingStatus.classList.remove('hidden');
+            searchInput.disabled = true;
+
+            readExcelFile(file, async (error, jsonData) => {
+                loadingStatus.classList.add('hidden');
+                if (error) {
+                    alert("เกิดข้อผิดพลาดในการอ่านไฟล์ FixID");
+                    return;
+                }
+                excelData = jsonData;
+                await localforage.setItem('myExcelApp_savedData', excelData);
+
+                // แสดงสถานะ
+                fixIdStatus.classList.remove('hidden');
+                fixIdCount.textContent = excelData.length.toLocaleString();
+
+                checkReadyToSearch();
+                searchInput.value = '';
+                searchInput.focus();
+                
+                if(excelData.length === 0) {
+                    emptyState.style.display = 'block';
+                    emptyState.textContent = "ไม่พบข้อมูลในไฟล์ FixID (ไฟล์ว่างเปล่า)";
+                } else {
+                    emptyState.style.display = 'block';
+                    emptyState.textContent = "จำไฟล์ FixID เรียบร้อย! " + (statusData.length > 0 ? "พิมพ์เลย 👆" : "อัปโหลดไฟล์ Status เพิ่มได้");
+                }
+            });
+        });
+
+        // อัปโหลดไฟล์ Status (RTU Status)
+        statusUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            loadingStatus.classList.remove('hidden');
+
+            readExcelFile(file, async (error, jsonData) => {
+                loadingStatus.classList.add('hidden');
+                if (error) {
+                    alert("เกิดข้อผิดพลาดในการอ่านไฟล์ Status");
+                    return;
+                }
+                statusData = jsonData;
+                buildStatusMap(statusData);
+                await localforage.setItem('myExcelApp_statusData', statusData);
+
+                // แสดงสถานะ
+                statusFileStatus.classList.remove('hidden');
+                statusCountEl.textContent = statusData.length.toLocaleString();
+
+                checkReadyToSearch();
+                
+                if (excelData.length > 0) {
+                    emptyState.style.display = 'block';
+                    emptyState.textContent = "จำไฟล์ทั้ง 2 เรียบร้อย! พิมพ์เลย 👆";
+                }
+            });
+        });
+
+        // ฟังก์ชันรับข้อความและค้นหาทันทีที่พิมพ์ (พิมพ์ปุ๊บ ออกปั๊บ)
+        searchInput.addEventListener('input', function(e) {
+            const query = e.target.value.trim().toLowerCase();
+            
+            if (query === '') {
+                resultsContainer.innerHTML = '';
+                emptyState.style.display = 'block';
+                emptyState.textContent = "พิมพ์เพื่อค้นหาได้เลย...";
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            resultsContainer.innerHTML = '';
+            
+            let matchCount = 0;
+            const MAX_RESULTS = 50; // โชว์ลัก 50 รายการแรก เพื่อให้มือถือไม่หน่วง
+            
+            // ลุยค้นหา (วนลูปตามบรรทัดของ Excel)
+            for (let i = 0; i < excelData.length; i++) {
+                const row = excelData[i];
+                let isMatch = false;
+                
+                // ตรวจดูทีละช่อง (Column)
+                for (let key in row) {
+                    const cellValue = String(row[key]).toLowerCase();
+                    if (cellValue.includes(query)) {
+                        isMatch = true;
+                        break;
+                    }
+                }
+                
+                // ถ้าค้นเจอ ให้นำแถวนั้นมาแสดงเป็นหน้าต่างการ์ด
+                if (isMatch) {
+                    renderCard(row, query);
+                    matchCount++;
+                    if (matchCount >= MAX_RESULTS) break;
+                }
+            }
+
+            // จัดการกรณีไม่เจอ ค้นเจอเยอะไป
+            if (matchCount === 0) {
+                resultsContainer.innerHTML = `<div class="text-center text-red-500 py-6 bg-white rounded-xl shadow-sm border border-red-100">❌ ไม่พบข้อมูล "${query}"</div>`;
+            } else if (matchCount >= MAX_RESULTS) {
+                const note = document.createElement('div');
+                note.className = "text-center text-sm font-medium text-blue-500 mt-4 pb-4";
+                note.textContent = `แสดงผล 50 รายการแรก (พิมพ์ให้เจาะจงขึ้น หากยังไม่เจอข้อมูลที่ต้องการ)`;
+                resultsContainer.appendChild(note);
+            }
+        });
+
+        // ฟังก์ชันแปลงวันที่ Excel (Serial Number) เป็นวันที่ไทย
+        function formatExcelDate(serial) {
+            if (isNaN(serial) || serial === "" || String(serial).indexOf('.') === -1 && String(serial).length < 5) return serial;
+            try {
+                // Excel dates are days since 1899-12-30
+                const date = new Date(Math.round((serial - 25569) * 864e5));
+                if (isNaN(date.getTime())) return serial;
+                return date.toLocaleDateString('th-TH', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }) + " น.";
+            } catch(e) {
+                return serial;
+            }
+        }
+
+        // ฟังก์ชันดีไซน์แต่ละแถวออกมาเป็นกล่องการ์ดสวยๆ
+        function renderCard(rowData, query) {
+            const card = document.createElement('div');
+            card.className = "bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all";
+            
+            const grid = document.createElement('div');
+            grid.className = "grid grid-cols-1 sm:grid-cols-2 gap-4";
+            
+            // เตรียมชื่อคอลัมน์ที่จะข้าม
+            const skipList = ["หมายเลขเสา", "longitude"];
+            
+            for (let key in rowData) {
+                if (skipList.some(s => matchKey(key, s))) continue;
+                
+                let labelText = key;
+                let displayValue = String(rowData[key]).trim();
+                
+                // 1. จัดการ Latitude + Longitude → รวมเป็นช่องเดียว
+                if (matchKey(key, "LATITUDE")) {
+                    labelText = "พิกัด (LAT, LONG)";
+                    const lat = findValue(rowData, "LATITUDE");
+                    const lng = findValue(rowData, "LONGITUDE");
+                    displayValue = (lat && lng) ? `${lat}, ${lng}` : (lat || lng || "-");
+                }
+                
+                // 2. จัดการ วันที่แก้ไข (Format Excel Date)
+                if (matchKey(key, "วันที่แก้ไข") && !isNaN(displayValue) && displayValue !== "") {
+                    displayValue = formatExcelDate(Number(displayValue));
+                }
+
+                if (displayValue === "") continue; 
+                
+                const item = document.createElement('div');
+                item.className = "flex flex-col text-left";
+                
+                const label = document.createElement('span');
+                label.className = "text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1";
+                label.textContent = labelText;
+                
+                const value = document.createElement('span');
+                value.className = "text-sm text-gray-800 break-words mb-1";
+                
+                // ไฮไลท์คำค้นหา
+                if (query && displayValue.toLowerCase().includes(query)) {
+                    try {
+                        const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const regex = new RegExp(`(${escapedQuery})`, "gi");
+                        value.innerHTML = displayValue.replace(regex, `<mark class="bg-yellow-200 text-yellow-900 px-1 rounded font-medium">$1</mark>`);
+                    } catch(e) {
+                        value.textContent = displayValue;
+                    }
+                } else {
+                    value.textContent = displayValue; 
+                }
+                
+                item.appendChild(label);
+                item.appendChild(value);
+                grid.appendChild(item);
+            }
+            
+            // === RTU Status Badge ===
+            // ดึง "หมายเลข FixID" จากแถวนี้ แล้วค้นหาใน statusMap
+            const fixId = findValue(rowData, "หมายเลข FixID");
+            if (fixId && Object.keys(statusMap).length > 0) {
+                const rtuStatus = statusMap[fixId.toLowerCase()] || "";
+                if (rtuStatus) {
+                    const statusItem = document.createElement('div');
+                    statusItem.className = "flex flex-col text-left sm:col-span-2";
+                    
+                    const statusLabel = document.createElement('span');
+                    statusLabel.className = "text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1";
+                    statusLabel.textContent = "RTU STATUS";
+                    
+                    const badge = document.createElement('span');
+                    const statusLower = rtuStatus.toLowerCase();
+                    let badgeClass = "inline-block px-3 py-1 rounded-full text-sm font-semibold w-fit ";
+                    if (statusLower === 'online') {
+                        badgeClass += "bg-green-100 text-green-800 border border-green-300";
+                    } else if (statusLower === 'remove') {
+                        badgeClass += "bg-red-100 text-red-800 border border-red-300";
+                    } else if (statusLower === 'failed') {
+                        badgeClass += "bg-orange-100 text-orange-800 border border-orange-300";
+                    } else {
+                        badgeClass += "bg-gray-100 text-gray-800 border border-gray-300";
+                    }
+                    badge.className = badgeClass;
+                    badge.textContent = rtuStatus;
+                    
+                    statusItem.appendChild(statusLabel);
+                    statusItem.appendChild(badge);
+                    grid.appendChild(statusItem);
+                }
+            }
+            
+            card.appendChild(grid);
+            resultsContainer.appendChild(card);
+        }
+    </script>
+</body>
+</html>
