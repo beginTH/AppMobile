@@ -74,18 +74,48 @@
 
             <hr class="my-6 border-gray-100">
 
-            <!-- Search Area -->
+            <!-- Search & Filter Area -->
             <div class="flex flex-col">
-                <label class="block text-sm font-medium text-gray-700 mb-2">2. ค้นหาข้อมูล</label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <svg class="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" />
-                        </svg>
-                    </div>
-                    <input type="text" id="searchInput" disabled placeholder="พิมพ์คำที่ต้องการค้นหา..." class="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                <div class="flex items-center justify-between mb-3">
+                    <label class="block text-sm font-medium text-gray-700">2. ค้นหาและกรองข้อมูล</label>
+                    <button id="btnClearFilters" disabled class="text-xs text-blue-600 hover:text-blue-800 font-medium focus:outline-none disabled:opacity-30">
+                        🧹 ล้างตัวกรองทั้งหมด
+                    </button>
                 </div>
-                <p class="text-xs text-gray-400 mt-2">พิมพ์อะไรก็ได้ที่อยู่ในข้อมูล ผลลัพธ์จะออกทันที</p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <!-- FixID Search -->
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <span class="text-xs font-bold text-gray-400">FixID</span>
+                        </div>
+                        <input type="text" id="fixIdSearch" disabled placeholder="ค้นหาหมายเลข FixID..." class="block w-full pl-14 pr-3 py-2.5 border border-gray-300 rounded-xl leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors disabled:opacity-50">
+                    </div>
+                    <!-- KaiID Search -->
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <span class="text-xs font-bold text-gray-400">ไก</span>
+                        </div>
+                        <input type="text" id="kaiIdSearch" disabled placeholder="หมายเลขไกตัดตอน..." class="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-xl leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors disabled:opacity-50">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Type Filter -->
+                    <div class="flex flex-col">
+                        <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 ml-1">ชนิดไกตัดตอน</label>
+                        <select id="typeFilter" disabled class="block w-full px-3 py-2.5 border border-gray-300 rounded-xl bg-gray-50 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 sm:text-sm transition-colors disabled:opacity-50">
+                            <option value="">-- แสดงทั้งหมด --</option>
+                        </select>
+                    </div>
+                    <!-- FK Filter -->
+                    <div class="flex flex-col">
+                        <label class="text-[10px] font-bold text-gray-400 uppercase mb-1 ml-1">ฟข.</label>
+                        <select id="fkFilter" disabled class="block w-full px-3 py-2.5 border border-gray-300 rounded-xl bg-gray-50 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 sm:text-sm transition-colors disabled:opacity-50">
+                            <option value="">-- แสดงทั้งหมด --</option>
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -105,7 +135,12 @@
 
         const fileUpload = document.getElementById('fileUpload');
         const statusUpload = document.getElementById('statusUpload');
-        const searchInput = document.getElementById('searchInput');
+        const fixIdSearch = document.getElementById('fixIdSearch');
+        const kaiIdSearch = document.getElementById('kaiIdSearch');
+        const typeFilter = document.getElementById('typeFilter');
+        const fkFilter = document.getElementById('fkFilter');
+        const btnClearFilters = document.getElementById('btnClearFilters');
+        
         const resultsContainer = document.getElementById('resultsContainer');
         const emptyState = document.getElementById('emptyState');
         const loadingStatus = document.getElementById('loadingStatus');
@@ -145,8 +180,50 @@
         // เช็คว่าพร้อมค้นหาหรือยัง (ต้องมี FixID อย่างน้อย)
         function checkReadyToSearch() {
             if (excelData.length > 0) {
-                searchInput.disabled = false;
+                fixIdSearch.disabled = false;
+                kaiIdSearch.disabled = false;
+                typeFilter.disabled = false;
+                fkFilter.disabled = false;
+                btnClearFilters.disabled = false;
+                updateFiltersUI();
             }
+        }
+
+        // ดึงข้อมูลที่ไม่ซ้ำกันมาใส่ใน Select
+        function updateFiltersUI() {
+            if (!excelData || excelData.length === 0) return;
+
+            const types = new Set();
+            const fks = new Set();
+
+            excelData.forEach(row => {
+                const typeVal = findValue(row, "ชนิดไกตัดตอน");
+                const fkVal = findValue(row, "ฟข.");
+                if (typeVal) types.add(typeVal);
+                if (fkVal) fks.add(fkVal);
+            });
+
+            // Populate ชนิดไกตัดตอน
+            const currentType = typeFilter.value;
+            typeFilter.innerHTML = '<option value="">-- แสดงทั้งหมด --</option>';
+            Array.from(types).sort((a, b) => String(a).localeCompare(String(b), 'th')).forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t;
+                typeFilter.appendChild(opt);
+            });
+            typeFilter.value = currentType;
+
+            // Populate ฟข.
+            const currentFk = fkFilter.value;
+            fkFilter.innerHTML = '<option value="">-- แสดงทั้งหมด --</option>';
+            Array.from(fks).sort((a, b) => String(a).localeCompare(String(b), 'th')).forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f;
+                opt.textContent = f;
+                fkFilter.appendChild(opt);
+            });
+            fkFilter.value = currentFk;
         }
 
         // เมื่อเปิดแอปขึ้นมา ให้เช็คก่อนว่าเคยมีข้อมูลบันทึกไว้ไหม
@@ -170,10 +247,9 @@
                         savedStatusCount.textContent = statusData.length.toLocaleString();
                     }
                     
-                    searchInput.disabled = false;
-                    searchInput.value = '';
+                    checkReadyToSearch();
                     emptyState.style.display = 'block';
-                    emptyState.textContent = 'ข้อมูลเดิมของคุณพร้อมแล้ว! พิมพ์เพื่อค้นหาได้เลย';
+                    emptyState.textContent = 'ข้อมูลเดิมของคุณพร้อมแล้ว! พิมพ์หรือใช้ตัวกรองเพื่อค้นหาได้เลย';
                 }
             } catch (error) {
                 console.error("เกิดข้อผิดพลาดในการโหลดข้อมูลเดิม:", error);
@@ -195,8 +271,17 @@
                 fixIdStatus.classList.add('hidden');
                 statusFileStatus.classList.add('hidden');
                 
-                searchInput.disabled = true;
-                searchInput.value = '';
+                fixIdSearch.disabled = true;
+                kaiIdSearch.disabled = true;
+                typeFilter.disabled = true;
+                fkFilter.disabled = true;
+                btnClearFilters.disabled = true;
+
+                fixIdSearch.value = '';
+                kaiIdSearch.value = '';
+                typeFilter.innerHTML = '<option value="">-- แสดงทั้งหมด --</option>';
+                fkFilter.innerHTML = '<option value="">-- แสดงทั้งหมด --</option>';
+
                 resultsContainer.innerHTML = '';
                 emptyState.style.display = 'block';
                 emptyState.textContent = 'กรุณาเลือกไฟล์ Excel ใหม่ด้านบน 👆';
@@ -245,15 +330,16 @@
                 fixIdCount.textContent = excelData.length.toLocaleString();
 
                 checkReadyToSearch();
-                searchInput.value = '';
-                searchInput.focus();
+                fixIdSearch.value = '';
+                kaiIdSearch.value = '';
+                fixIdSearch.focus();
                 
                 if(excelData.length === 0) {
                     emptyState.style.display = 'block';
                     emptyState.textContent = "ไม่พบข้อมูลในไฟล์ FixID (ไฟล์ว่างเปล่า)";
                 } else {
                     emptyState.style.display = 'block';
-                    emptyState.textContent = "จำไฟล์ FixID เรียบร้อย! " + (statusData.length > 0 ? "พิมพ์เลย 👆" : "อัปโหลดไฟล์ Status เพิ่มได้");
+                    emptyState.textContent = "จำไฟล์ FixID เรียบร้อย! " + (statusData.length > 0 ? "ค้นหาได้เลย 👆" : "อัปโหลดไฟล์ Status เพิ่มได้");
                 }
             });
         });
@@ -288,14 +374,17 @@
             });
         });
 
-        // ฟังก์ชันรับข้อความและค้นหาทันทีที่พิมพ์ (พิมพ์ปุ๊บ ออกปั๊บ)
-        searchInput.addEventListener('input', function(e) {
-            const query = e.target.value.trim().toLowerCase();
+        // ฟังก์ชันกลางสำหรับการค้นหาและกรอง
+        function performSearch() {
+            const qFix = fixIdSearch.value.trim().toLowerCase();
+            const qKai = kaiIdSearch.value.trim().toLowerCase();
+            const fType = typeFilter.value;
+            const fFk = fkFilter.value;
             
-            if (query === '') {
+            if (!qFix && !qKai && !fType && !fFk) {
                 resultsContainer.innerHTML = '';
                 emptyState.style.display = 'block';
-                emptyState.textContent = "พิมพ์เพื่อค้นหาได้เลย...";
+                emptyState.textContent = "พิมพ์หรือใช้ตัวกรองเพื่อค้นหา...";
                 return;
             }
 
@@ -303,39 +392,43 @@
             resultsContainer.innerHTML = '';
             
             let matchCount = 0;
-            const MAX_RESULTS = 50; // โชว์ลัก 50 รายการแรก เพื่อให้มือถือไม่หน่วง
+            const MAX_RESULTS = 50;
             
-            // ลุยค้นหา (วนลูปตามบรรทัดของ Excel)
             for (let i = 0; i < excelData.length; i++) {
                 const row = excelData[i];
-                let isMatch = false;
                 
-                // ตรวจดูทีละช่อง (Column)
-                for (let key in row) {
-                    const cellValue = String(row[key]).toLowerCase();
-                    if (cellValue.includes(query)) {
-                        isMatch = true;
-                        break;
-                    }
-                }
+                // เช็คทีละเงื่อนไข (AND logic)
+                if (qFix && !findValue(row, "หมายเลข FixID").toLowerCase().includes(qFix)) continue;
+                if (qKai && !findValue(row, "หมายเลขไกตัดตอน").toLowerCase().includes(qKai)) continue;
+                if (fType && findValue(row, "ชนิดไกตัดตอน") !== fType) continue;
+                if (fFk && findValue(row, "ฟข.") !== fFk) continue;
                 
-                // ถ้าค้นเจอ ให้นำแถวนั้นมาแสดงเป็นหน้าต่างการ์ด
-                if (isMatch) {
-                    renderCard(row, query);
-                    matchCount++;
-                    if (matchCount >= MAX_RESULTS) break;
-                }
+                // ถ้าผ่านมาหมดแสดงว่า Match
+                renderCard(row, qFix || qKai); // ไฮไลท์คำแรกที่เจอ
+                matchCount++;
+                if (matchCount >= MAX_RESULTS) break;
             }
 
-            // จัดการกรณีไม่เจอ ค้นเจอเยอะไป
             if (matchCount === 0) {
-                resultsContainer.innerHTML = `<div class="text-center text-red-500 py-6 bg-white rounded-xl shadow-sm border border-red-100">❌ ไม่พบข้อมูล "${query}"</div>`;
+                resultsContainer.innerHTML = `<div class="text-center text-red-500 py-6 bg-white rounded-xl shadow-sm border border-red-100">❌ ไม่พบข้อมูลที่ตรงตามเงื่อนไข</div>`;
             } else if (matchCount >= MAX_RESULTS) {
                 const note = document.createElement('div');
                 note.className = "text-center text-sm font-medium text-blue-500 mt-4 pb-4";
-                note.textContent = `แสดงผล 50 รายการแรก (พิมพ์ให้เจาะจงขึ้น หากยังไม่เจอข้อมูลที่ต้องการ)`;
+                note.textContent = `แสดงผล 50 รายการแรก (กรองให้เจาะจงขึ้นเพื่อดูข้อมูลชุดอื่น)`;
                 resultsContainer.appendChild(note);
             }
+        }
+
+        // Event Listeners สำหรับตัวกรอง
+        [fixIdSearch, kaiIdSearch].forEach(el => el.addEventListener('input', performSearch));
+        [typeFilter, fkFilter].forEach(el => el.addEventListener('change', performSearch));
+
+        btnClearFilters.addEventListener('click', () => {
+            fixIdSearch.value = '';
+            kaiIdSearch.value = '';
+            typeFilter.value = '';
+            fkFilter.value = '';
+            performSearch();
         });
 
         // ฟังก์ชันแปลงวันที่ Excel (Serial Number) เป็นวันที่ไทย
